@@ -1,0 +1,6 @@
+backend: mace
+checkpoint: mace-mp
+model_size: medium   # small | medium | large
+device: cuda
+dtype: float32
+compute_stress: true

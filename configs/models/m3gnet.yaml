@@ -1,0 +1,5 @@
+backend: m3gnet
+checkpoint: pretrained   # or path/to/custom or matgl HF model id
+device: cuda
+dtype: float32
+compute_stress: true

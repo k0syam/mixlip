@@ -1,0 +1,5 @@
+backend: chgnet
+checkpoint: pretrained
+device: cuda
+dtype: float32
+compute_stress: true

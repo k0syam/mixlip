@@ -1,0 +1,35 @@
+model:
+  backend: mace
+  checkpoint: mace-mp
+  model_size: medium
+  device: cuda
+  dtype: float32
+  compute_stress: true
+
+data:
+  train_path: data/train.extxyz
+  val_path: data/val.extxyz
+  format: extxyz
+  cutoff_radius: 6.0
+  max_neighbors: 50
+  batch_size: 32
+  num_workers: 4
+
+loss:
+  energy_weight: 1.0
+  forces_weight: 100.0
+  stress_weight: 10.0
+  criterion: huber
+  huber_delta: 0.01
+
+optimizer: adamw
+lr: 1.0e-3
+weight_decay: 1.0e-5
+max_epochs: 500
+patience: 50
+grad_clip_norm: 10.0
+use_ema: true
+ema_decay: 0.99
+scheduler: cosine
+log_every_n_steps: 10
+wandb: false

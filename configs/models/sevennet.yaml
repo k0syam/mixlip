@@ -1,0 +1,5 @@
+backend: sevennet
+checkpoint: 7net-0    # or 7net-omat for OC2M pretrained
+device: cuda
+dtype: float32
+compute_stress: true
