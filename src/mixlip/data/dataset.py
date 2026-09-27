@@ -68,7 +68,7 @@ class MLIPDataset(Dataset):
 
     @classmethod
     def from_hdf5(cls, path: Path | str, **kwargs) -> MLIPDataset:
-        from mixlip.data.loaders.hdf5_loader import load_hdf5
+        from mixlip.data.writers.hdf5_writer import load_hdf5
 
         return cls(load_hdf5(Path(path)), **kwargs)
 
