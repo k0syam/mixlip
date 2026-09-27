@@ -34,7 +34,11 @@ class M3GNetAdapter(MixLIPCalculator):
             model = matgl.load_model("M3GNet-MP-2021.2.8-PES")
         else:
             model = matgl.load_model(checkpoint)
-        return PESCalculator(potential=model)
+        try:
+            # matgl>=2 returns stress in GPa by default; mixlip uses ASE units (eV/Å³)
+            return PESCalculator(potential=model, stress_unit="eV/A3")
+        except TypeError:  # older matgl without the stress_unit option (already eV/Å³)
+            return PESCalculator(potential=model)
 
     def _run_backend(self, atoms: ase.Atoms) -> PredictionResult:
         t0 = time.perf_counter()
