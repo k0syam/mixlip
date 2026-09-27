@@ -34,13 +34,16 @@ def train(
     from mixlip.calculators import load as load_calc
 
     calc = load_calc(cfg.model.backend, cfg.model)
-    # The underlying torch model is at calc._backend or calc._backend.model
-    # This is backend-specific; use a generic wrapper
-    model = _extract_torch_model(calc)
+    if not calc.supports_training:
+        console.print(
+            f"[red]Training is not yet supported for backend '{cfg.model.backend}'.[/red] "
+            f"Currently supported: chgnet."
+        )
+        raise typer.Exit(1)
 
-    from mixlip.training.module import MLIPLightningModule
+    from mixlip.training.module import CalculatorTrainingWrapper, MLIPLightningModule
 
-    module = MLIPLightningModule(model, cfg)
+    module = MLIPLightningModule(CalculatorTrainingWrapper(calc), cfg)
     datamodule = MLIPDataModule(cfg.data)
 
     callbacks = [
@@ -61,20 +64,3 @@ def train(
     )
     trainer.fit(module, datamodule=datamodule)
     console.print("[bold green]Training complete.[/bold green]")
-
-
-def _extract_torch_model(calc):
-    """Best-effort extraction of torch.nn.Module from a MixLIPCalculator."""
-    import torch.nn as nn
-
-    backend = calc._backend
-    # Try common attribute names used by upstream libraries
-    for attr in ("model", "net", "_model", "calculator"):
-        if hasattr(backend, attr) and isinstance(getattr(backend, attr), nn.Module):
-            return getattr(backend, attr)
-    if isinstance(backend, nn.Module):
-        return backend
-    raise RuntimeError(
-        f"Could not extract a torch.nn.Module from {type(backend).__name__}. "
-        "Use the Python API directly and pass the model explicitly."
-    )

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -75,3 +76,56 @@ class AtomicSample:
     @property
     def n_atoms(self) -> int:
         return len(self.structure)
+
+
+def collate_labels(samples: list[AtomicSample], device=None) -> SimpleNamespace:
+    """Collate a batch of AtomicSample labels into an object WeightedEFSLoss can read.
+
+    Returns a SimpleNamespace exposing `.energy`, `.forces`, `.stress`, `.magmoms`
+    (each concatenated/stacked across the batch, set only if EVERY sample in the
+    batch has that label — otherwise left unset, so `getattr(batch, name, None)`
+    correctly yields None), plus `.num_atoms`, `.weight`, and `.num_graphs`.
+
+    Shapes/units mirror what `mixlip.data.graph.structure_to_graph` puts on its
+    torch_geometric.Data output, so the same WeightedEFSLoss works whether
+    predictions come from a generic PyG-graph model or from a backend-native
+    `MixLIPCalculator.training_forward` (see `mixlip.training.module`).
+
+    Parameters
+    ----------
+    device:
+        Optional torch device to place the label tensors on. Pass the same
+        device as the model's predictions (e.g. `pred["energy"].device`) so
+        WeightedEFSLoss doesn't hit a CPU/GPU mismatch — labels default to
+        CPU otherwise (fine for CPU training or standalone use/tests).
+    """
+    import torch
+
+    batch = SimpleNamespace()
+    batch.num_graphs = len(samples)
+    batch.num_atoms = torch.tensor([s.n_atoms for s in samples], dtype=torch.long, device=device)
+    batch.weight = torch.tensor(
+        [s.weight for s in samples], dtype=torch.float32, device=device
+    )
+
+    if all(s.energy is not None for s in samples):
+        batch.energy = torch.tensor(
+            [s.energy for s in samples], dtype=torch.float64, device=device
+        )
+    if all(s.forces is not None for s in samples):
+        batch.forces = torch.tensor(
+            np.concatenate([s.forces for s in samples], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+    if all(s.stress is not None for s in samples):
+        batch.stress = torch.tensor(
+            np.stack([s.stress for s in samples], axis=0), dtype=torch.float32, device=device
+        )
+    if all(s.magmoms is not None for s in samples):
+        batch.magmoms = torch.tensor(
+            np.concatenate([s.magmoms for s in samples], axis=0),
+            dtype=torch.float32,
+            device=device,
+        )
+    return batch

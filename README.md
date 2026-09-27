@@ -175,6 +175,11 @@ pytest tests/ -m "integration" --backend chgnet -v
 
 ### 知識蒸留のドライラン
 
+> [!NOTE]
+> `mixlip train`/`mixlip distill run` は現状 **chgnet のみ**ファインチューニング対応です
+> （`backend` にそれ以外を指定するとエラーメッセージを出して即終了します）。
+> 蒸留の教師（teacher）側は推論のみなので、7バックエンドすべて指定できます。
+
 蒸留の設定が正しいか確認するために `fast_dev_run` を使います（GPUなしでも数秒で完了）。
 
 ```powershell

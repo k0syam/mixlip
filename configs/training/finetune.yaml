@@ -1,9 +1,10 @@
-# Fine-tune MACE-MP on a custom dataset (e.g. perovskites)
+# Fine-tune CHGNet on a custom dataset (e.g. perovskites).
+# `mixlip train` currently only supports fine-tuning the chgnet backend —
+# see the comment in configs/training/default.yaml.
 
 model:
-  backend: mace
-  checkpoint: mace-mp
-  model_size: medium
+  backend: chgnet
+  checkpoint: pretrained
   device: cuda
   dtype: float32
   compute_stress: true
