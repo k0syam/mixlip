@@ -42,7 +42,6 @@ class LossConfig(BaseModel):
 class DistillConfig(BaseModel):
     teacher: ModelConfig
     student: ModelConfig
-    temperature: float = 1.0
     alpha_task: float = 0.5     # weight on hard labels (DFT data)
     alpha_distill: float = 0.5  # weight on teacher soft labels
     loss: LossConfig = Field(default_factory=LossConfig)
@@ -72,7 +71,7 @@ def load_config(path: Path) -> TrainingConfig:
 
     import yaml
 
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if path.suffix == ".toml":
         raw = tomllib.loads(text)
     else:
