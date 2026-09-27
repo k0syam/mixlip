@@ -4,6 +4,9 @@ Matbench Discovery系のオープンソースMLIP（機械学習ポテンシャ�
 
 対応モデル: **MACE**, **CHGNet**, **SevenNet**, **EquiformerV2**, **M3GNet**, **ALIGNN**, **ORB**
 
+> [!TIP]
+> 初めての方は、まず [TUTORIAL.md](TUTORIAL.md) を上から順にどうぞ。セットアップから推論・構造緩和・ファインチューニング・知識蒸留までを手を動かしながら一通り体験できます。
+
 ---
 
 ## CPU環境（GPUなしノートPC）での開発セットアップ
