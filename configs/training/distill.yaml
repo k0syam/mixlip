@@ -52,7 +52,6 @@ distill:
     device: cuda
     dtype: float32
 
-  temperature: 1.0
   alpha_task: 0.5      # weight on hard DFT labels
   alpha_distill: 0.5   # weight on teacher predictions
 
