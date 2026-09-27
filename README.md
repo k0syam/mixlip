@@ -92,7 +92,8 @@ calc = mixlip.load_calculator("chgnet", device="cpu")
 # MACE-MP small (CPU向け最小サイズ)
 calc = mixlip.load_calculator("mace", device="cpu", model_size="small")
 
-# M3GNet
+# M3GNet (既定は MatPES-PBE データセットで学習されたモデル。
+# 旧 M3GNet-MP-2021.2.8-PES とはエネルギー基準・精度傾向が異なる別モデル)
 calc = mixlip.load_calculator("m3gnet", device="cpu")
 ```
 
