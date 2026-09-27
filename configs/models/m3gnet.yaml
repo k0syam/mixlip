@@ -1,5 +1,10 @@
 backend: m3gnet
-checkpoint: pretrained   # or path/to/custom or matgl HF model id
+# "pretrained" resolves to M3GNet-PES-MatPES-PBE-2025.2 (trained on the MatPES
+# dataset of static PBE calculations, not the original M3GNet-MP-2021.2.8-PES
+# relaxation-trajectory model, which matgl no longer publishes). To pin a
+# specific model instead, set this to one of matgl.get_available_pretrained_models(),
+# e.g. "M3GNet-PES-MatPES-r2SCAN-2025.2", or a local path / HF model id.
+checkpoint: pretrained
 device: cuda
 dtype: float32
 compute_stress: true

@@ -31,7 +31,14 @@ class M3GNetAdapter(MixLIPCalculator):
 
         checkpoint = config.checkpoint
         if checkpoint in ("pretrained", "m3gnet"):
-            model = matgl.load_model("M3GNet-MP-2021.2.8-PES")
+            # The original M3GNet-MP-2021.2.8-PES (trained on MP relaxation
+            # trajectories) is no longer published for matgl>=2. The default
+            # is now a model trained on MatPES (github.com/materialsvirtuallab/MatPES),
+            # a separate, purpose-built PES dataset of static PBE calculations.
+            # This is not a drop-in replacement: energies/forces from the two
+            # models are not directly comparable. Pass an explicit `checkpoint=`
+            # (see `matgl.get_available_pretrained_models()`) to pin a specific model.
+            model = matgl.load_model("M3GNet-PES-MatPES-PBE-2025.2")
         else:
             model = matgl.load_model(checkpoint)
         try:
