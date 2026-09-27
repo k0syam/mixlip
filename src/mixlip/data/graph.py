@@ -55,7 +55,7 @@ def structure_to_graph(
         cart_coords,
         cart_coords,
         r=cutoff,
-        pbc=np.array([True, True, True]),
+        pbc=np.array([1, 1, 1], dtype=np.int64),
         lattice=lattice,
     )
 

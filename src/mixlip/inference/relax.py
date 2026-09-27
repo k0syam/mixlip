@@ -46,8 +46,9 @@ def relax_structure(
     """
     import ase
     import ase.optimize
+    import numpy as np
     from ase.filters import ExpCellFilter, FrechetCellFilter
-    from ase.constraints import StrainFilter
+    from ase.units import GPa
 
     atoms = atoms.copy()
     atoms.calc = calculator.ase_calculator
@@ -60,9 +61,9 @@ def relax_structure(
 
     if relax_cell:
         try:
-            filtered = FrechetCellFilter(atoms, scalar_pressure=pressure_gpa * 1e-1)
+            filtered = FrechetCellFilter(atoms, scalar_pressure=pressure_gpa * GPa)
         except ImportError:
-            filtered = ExpCellFilter(atoms, scalar_pressure=pressure_gpa * 1e-1)
+            filtered = ExpCellFilter(atoms, scalar_pressure=pressure_gpa * GPa)
     else:
         filtered = atoms
 
@@ -77,6 +78,6 @@ def relax_structure(
         "converged": converged,
         "n_steps": opt.get_number_of_steps(),
         "final_energy_eV": float(atoms.get_potential_energy()),
-        "final_fmax_eV_per_A": float(atoms.get_forces().max()),
+        "final_fmax_eV_per_A": float(np.linalg.norm(atoms.get_forces(), axis=1).max()),
     }
     return atoms, info
