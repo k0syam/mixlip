@@ -13,23 +13,32 @@ Two distillation modes are supported:
    to be loaded in memory alongside student. Slower but no pre-computation.
 
 2. Pre-computed (offline) distillation
-   Teacher labels are stored in the dataset (e.g. as `teacher_energy`,
-   `teacher_forces`, `teacher_stress` batch attributes). Teacher model
-   is not instantiated. Fast and memory-efficient.
+   Teacher labels are stored per-sample in `AtomicSample.metadata` (as
+   `teacher_energy`, `teacher_forces`, `teacher_stress` — see
+   `generate_teacher_labels` below). Teacher model is not instantiated.
+   Fast and memory-efficient.
+
+The teacher only ever needs `.predict()` (the ASE/pymatgen inference path
+every MixLIPCalculator implements), so any of the 7 backends can be a
+teacher regardless of whether it supports training — only the *student*
+needs `supports_training = True`.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+import numpy as np
 import torch
 
+from mixlip.data.schema import collate_labels
 from mixlip.training.loss import WeightedEFSLoss
 from mixlip.training.module import MLIPLightningModule
 
 if TYPE_CHECKING:
     from mixlip.calculators.base import MixLIPCalculator
     from mixlip.core.config import TrainingConfig
+    from mixlip.data.schema import AtomicSample
 
 
 class DistillationModule(MLIPLightningModule):
@@ -58,9 +67,14 @@ class DistillationModule(MLIPLightningModule):
         super().__init__(student_model, config)
         self.teacher = teacher
         if teacher is not None:
-            # Freeze teacher parameters (if it exposes any)
-            if hasattr(teacher, "parameters"):
-                for p in teacher.parameters():
+            # Freeze teacher parameters, if it happens to be a real nn.Module.
+            # A MixLIPCalculator (the normal case — teacher is used purely via
+            # .predict()) is an ASE Calculator, not an nn.Module: it has its own
+            # unrelated `.parameters` dict attribute (ASE's calculator kwargs),
+            # so `hasattr(teacher, "parameters")` would be True but not callable.
+            maybe_parameters = getattr(teacher, "parameters", None)
+            if callable(maybe_parameters):
+                for p in maybe_parameters():
                     p.requires_grad_(False)
 
         dcfg = config.distill
@@ -69,98 +83,99 @@ class DistillationModule(MLIPLightningModule):
         self.alpha_distill = dcfg.alpha_distill
         self.distill_loss_fn = WeightedEFSLoss(dcfg.loss)
 
-    def _get_teacher_pred(self, batch) -> dict[str, torch.Tensor]:
+    def _get_teacher_pred(self, batch: list[AtomicSample]) -> dict[str, torch.Tensor]:
         """Return teacher predictions as a dict of tensors.
 
-        If pre-computed labels are present on the batch (teacher_energy, etc.),
-        use those. Otherwise run live teacher inference.
+        If every sample in the batch carries pre-computed labels (written by
+        `generate_teacher_labels` into `sample.metadata`), use those directly —
+        no teacher model needed. Otherwise run live teacher inference via
+        `self.teacher.predict(sample.structure)`.
         """
-        # -- pre-computed path (fastest) --
-        if hasattr(batch, "teacher_energy"):
-            pred: dict[str, torch.Tensor] = {"energy": batch.teacher_energy}
-            if hasattr(batch, "teacher_forces"):
-                pred["forces"] = batch.teacher_forces
-            if hasattr(batch, "teacher_stress"):
-                pred["stress"] = batch.teacher_stress
+        device = next(self.model.parameters()).device
+
+        # -- pre-computed path (fastest, no teacher model required) --
+        if all("teacher_energy" in s.metadata for s in batch):
+            pred: dict[str, torch.Tensor] = {
+                "energy": torch.tensor(
+                    [s.metadata["teacher_energy"] for s in batch],
+                    dtype=torch.float32,
+                    device=device,
+                )
+            }
+            if all("teacher_forces" in s.metadata for s in batch):
+                pred["forces"] = torch.tensor(
+                    np.concatenate(
+                        [np.asarray(s.metadata["teacher_forces"]) for s in batch], axis=0
+                    ),
+                    dtype=torch.float32,
+                    device=device,
+                )
+            if all(s.metadata.get("teacher_stress") is not None for s in batch):
+                pred["stress"] = torch.tensor(
+                    np.stack(
+                        [np.asarray(s.metadata["teacher_stress"]) for s in batch], axis=0
+                    ),
+                    dtype=torch.float32,
+                    device=device,
+                )
             return pred
 
         # -- live inference path --
         if self.teacher is None:
             raise RuntimeError(
-                "Teacher model not provided and no pre-computed teacher labels found in batch. "
-                "Either pass teacher= to DistillationModule or pre-compute labels with "
-                "`mixlip distill generate-labels`."
+                "Teacher model not provided and no pre-computed teacher labels found in "
+                "sample.metadata. Either pass teacher= to DistillationModule or "
+                "pre-compute labels with `mixlip distill generate-labels`."
             )
 
-        device = next(self.model.parameters()).device
-        teacher_pred: dict[str, torch.Tensor] = {}
-
-        # The teacher is a MixLIPCalculator (ASE-based). We iterate per structure
-        # because ASE calculators don't natively batch torch_geometric graphs.
         energies, forces_list, stresses = [], [], []
-        from pymatgen.core import Lattice, Structure, Element
-
-        offsets = torch.cat(
-            [torch.zeros(1, dtype=torch.long, device=device), batch.num_atoms.cumsum(0)]
-        )
-        for i in range(batch.num_graphs):
-            s = int(offsets[i])
-            e = int(offsets[i + 1])
-            z = batch.atomic_numbers[s:e].cpu().numpy()
-            pos = batch.pos[s:e].cpu().numpy()
-            cell = batch.cell[i].cpu().numpy() if batch.cell.dim() == 3 else batch.cell.cpu().numpy()
-            species = [Element.from_Z(int(zi)) for zi in z]
-            struct = Structure(Lattice(cell), species, pos, coords_are_cartesian=True)
-            with torch.no_grad():
-                result = self.teacher.predict(struct)
+        for sample in batch:
+            result = self.teacher.predict(sample.structure)
             energies.append(result.energy)
             forces_list.append(result.forces)
             if result.stress is not None:
                 stresses.append(result.stress)
 
-        teacher_pred["energy"] = torch.tensor(
-            energies, dtype=torch.float32, device=device
-        )
-        teacher_pred["forces"] = torch.tensor(
-            __import__("numpy").concatenate(forces_list, axis=0),
-            dtype=torch.float32,
-            device=device,
-        )
-        if stresses:
+        teacher_pred: dict[str, torch.Tensor] = {
+            "energy": torch.tensor(energies, dtype=torch.float32, device=device),
+            "forces": torch.tensor(
+                np.concatenate(forces_list, axis=0), dtype=torch.float32, device=device
+            ),
+        }
+        if len(stresses) == len(batch):
             teacher_pred["stress"] = torch.tensor(
-                __import__("numpy").stack(stresses, axis=0),
-                dtype=torch.float32,
-                device=device,
+                np.stack(stresses, axis=0), dtype=torch.float32, device=device
             )
         return teacher_pred
 
-    def training_step(self, batch: Any, batch_idx: int) -> torch.Tensor:
+    def training_step(self, batch: list[AtomicSample], batch_idx: int) -> torch.Tensor:
         student_pred = self(batch)
+        targets = collate_labels(batch, device=student_pred["energy"].device)
 
         # Task loss (vs DFT hard labels)
-        task_losses = self.loss_fn(student_pred, batch)
+        task_losses = self.loss_fn(student_pred, targets)
 
         # Distillation loss (vs teacher soft labels)
         with torch.no_grad():
             teacher_pred = self._get_teacher_pred(batch)
         # Treat teacher predictions as "true" labels for distill loss
-        class _TeacherBatch:
-            pass
+        from types import SimpleNamespace
 
-        tb = _TeacherBatch()
-        tb.energy = teacher_pred.get("energy")
-        tb.forces = teacher_pred.get("forces")
-        tb.stress = teacher_pred.get("stress")
-        tb.num_atoms = batch.num_atoms
-        tb.weight = getattr(batch, "weight", torch.ones(batch.num_graphs, device=batch.num_atoms.device))
+        tb = SimpleNamespace(
+            energy=teacher_pred.get("energy"),
+            forces=teacher_pred.get("forces"),
+            stress=teacher_pred.get("stress"),
+            num_atoms=targets.num_atoms,
+            weight=targets.weight,
+        )
 
         distill_losses = self.distill_loss_fn(student_pred, tb)
 
         total = self.alpha_task * task_losses["total"] + self.alpha_distill * distill_losses["total"]
 
-        self.log("train/task_loss", task_losses["total"], batch_size=batch.num_graphs)
-        self.log("train/distill_loss", distill_losses["total"], batch_size=batch.num_graphs)
-        self.log("train/total", total, batch_size=batch.num_graphs)
+        self.log("train/task_loss", task_losses["total"], batch_size=len(batch))
+        self.log("train/distill_loss", distill_losses["total"], batch_size=len(batch))
+        self.log("train/total", total, batch_size=len(batch))
         return total
 
 
@@ -186,11 +201,12 @@ def generate_teacher_labels(
     batch_size:
         Number of structures to process at once.
     """
-    import numpy as np
     from pathlib import Path
+
+    from rich.progress import track
+
     from mixlip.data.schema import AtomicSample
     from mixlip.data.writers.hdf5_writer import write_hdf5
-    from rich.progress import track
 
     labeled: list[AtomicSample] = []
     for sample in track(samples, description="Generating teacher labels..."):

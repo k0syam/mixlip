@@ -1,8 +1,13 @@
-# Knowledge distillation: MACE-MP (teacher) → M3GNet (student)
+# Knowledge distillation: M3GNet (teacher) → CHGNet (student)
 # The student trains on DFT labels + teacher soft predictions.
+#
+# The teacher only needs inference (.predict()), so any of mixlip's 7
+# backends works there regardless of training support. The student is
+# trained via `mixlip train`'s backend machinery, which currently only
+# supports chgnet — see MixLIPCalculator.supports_training.
 
 model:
-  backend: m3gnet   # student backbone for normal training steps
+  backend: chgnet   # same as distill.student; unused directly but must validate
   checkpoint: pretrained
   device: cuda
   dtype: float32
@@ -36,14 +41,13 @@ scheduler: cosine
 
 distill:
   teacher:
-    backend: mace
-    checkpoint: mace-mp
-    model_size: large
+    backend: m3gnet
+    checkpoint: pretrained
     device: cuda
     dtype: float32
 
   student:
-    backend: m3gnet
+    backend: chgnet
     checkpoint: pretrained
     device: cuda
     dtype: float32

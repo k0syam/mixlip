@@ -1,7 +1,11 @@
+# `mixlip train` currently only supports fine-tuning the chgnet backend
+# (see MixLIPCalculator.supports_training in src/mixlip/calculators/base.py).
+# Other backends still work fine for inference (mixlip.load_calculator) and
+# as a distillation *teacher* — only the trainable *student* is limited to
+# chgnet for now.
 model:
-  backend: mace
-  checkpoint: mace-mp
-  model_size: medium
+  backend: chgnet
+  checkpoint: pretrained
   device: cuda
   dtype: float32
   compute_stress: true

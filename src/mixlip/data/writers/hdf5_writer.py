@@ -12,12 +12,18 @@ Schema
 /forces           (total,3)  float64 or masked
 /stress           (N,6)      float64 or masked
 /magmoms          (total,)   float64 or masked
+/metadata_json    (N,)       variable-length UTF-8 string, JSON-encoded per sample
 
 Each per-sample field is accessed by slicing with the cumulative n_atoms offset.
+`/metadata_json` round-trips `AtomicSample.metadata` (e.g. the `teacher_energy`/
+`teacher_forces`/`teacher_stress` fields written by `generate_teacher_labels`
+for offline distillation). Files written before this field existed simply
+lack the dataset; `load_hdf5` falls back to `metadata={}` for those.
 """
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -87,6 +93,12 @@ def write_hdf5(samples: list[AtomicSample], path: Path) -> None:
         if has_magmoms:
             f.create_dataset("magmoms", data=magmoms)
 
+        metadata_json = np.array(
+            [json.dumps(s.metadata, default=str) for s in samples],
+            dtype=h5py.string_dtype(),
+        )
+        f.create_dataset("metadata_json", data=metadata_json)
+
 
 def load_hdf5(path: Path) -> list[AtomicSample]:
     """Load AtomicSamples from an HDF5 file written by write_hdf5."""
@@ -95,7 +107,7 @@ def load_hdf5(path: Path) -> list[AtomicSample]:
     except ImportError as e:
         raise ImportError("h5py is required: pip install h5py") from e
 
-    from pymatgen.core import Lattice, Structure, Element
+    from pymatgen.core import Element, Lattice, Structure
 
     samples = []
     with h5py.File(str(path), "r") as f:
@@ -110,6 +122,14 @@ def load_hdf5(path: Path) -> list[AtomicSample]:
         forces = f["forces"][:] if "forces" in f else None
         stress = f["stress"][:] if "stress" in f else None
         magmoms = f["magmoms"][:] if "magmoms" in f else None
+        if "metadata_json" in f:
+            metadata_list = [
+                json.loads(m.decode() if isinstance(m, bytes) else m)
+                for m in f["metadata_json"][:]
+            ]
+        else:
+            # Files written before metadata_json existed.
+            metadata_list = [{} for _ in range(len(n_atoms_arr))]
 
         offset = 0
         for i, na in enumerate(n_atoms_arr):
@@ -140,6 +160,7 @@ def load_hdf5(path: Path) -> list[AtomicSample]:
                     magmoms=m_arr,
                     weight=float(weights[i]),
                     source=sources[i],
+                    metadata=metadata_list[i],
                 )
             )
             offset += na

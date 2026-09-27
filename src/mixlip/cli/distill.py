@@ -17,27 +17,37 @@ def distill_run(
     devices: int = typer.Option(1, "--devices"),
 ):
     """Run distillation from a config file."""
+    import lightning as L
+    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
+
+    from mixlip.calculators import load as load_calc
     from mixlip.core.config import load_config
     from mixlip.data.datamodule import MLIPDataModule
     from mixlip.training.distill import DistillationModule
-    from mixlip.calculators import load as load_calc
-    import lightning as L
-    from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 
     cfg = load_config(config)
     assert cfg.distill is not None, "--config must have a [distill] section"
 
-    console.print(f"[bold]Distillation:[/bold]")
+    console.print("[bold]Distillation:[/bold]")
     console.print(f"  Teacher: [yellow]{cfg.distill.teacher.backend}[/yellow]")
     console.print(f"  Student: [cyan]{cfg.distill.student.backend}[/cyan]")
 
+    # Teacher is inference-only (.predict()), so any backend works here
+    # regardless of training support.
     teacher_calc = load_calc(cfg.distill.teacher.backend, cfg.distill.teacher)
     student_calc = load_calc(cfg.distill.student.backend, cfg.distill.student)
+    if not student_calc.supports_training:
+        console.print(
+            f"[red]Student backend '{cfg.distill.student.backend}' does not support "
+            f"training yet.[/red] Currently supported: chgnet."
+        )
+        raise typer.Exit(1)
 
-    from mixlip.cli.train import _extract_torch_model
+    from mixlip.training.module import CalculatorTrainingWrapper
 
-    student_model = _extract_torch_model(student_calc)
-    module = DistillationModule(student_model, cfg, teacher=teacher_calc)
+    module = DistillationModule(
+        CalculatorTrainingWrapper(student_calc), cfg, teacher=teacher_calc
+    )
     datamodule = MLIPDataModule(cfg.data)
 
     trainer = L.Trainer(
